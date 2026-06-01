@@ -10,7 +10,7 @@ def exp_neg(media):
     return rnd, tiempo
 
 # ==========================================
-# 1. CLASES 
+# 1. CLASES DEL MOTOR DE SIMULACIÓN
 # ==========================================
 class Paciente:
     def __init__(self, id_paciente, tiempo_llegada):
@@ -20,14 +20,31 @@ class Paciente:
         self.hora_limite_espera = None
         self.slot_asignado = -1
 
-# --- MÉTODOS DE GESTIÓN DE SLOTS ---
+class SimuladorSonrisas:
+    def __init__(self, tiempo_x, desde_iter_i, desde_hora_j, params):
+        self.tiempo_x = tiempo_x
+        self.desde_iter_i = desde_iter_i
+        self.desde_hora_j = desde_hora_j
+        self.params = params
+        
+        self.reloj = 0.0
+        self.iteracion = 0
+        self.vector_estado = []
+        
+        # Métricas
+        self.llegadas_totales = 0
+        self.abandonos_totales = 0
+
+        # Inicialización de objetos y colas
+        self.cantidad_slots = 15
+        self.slots = [None] * self.cantidad_slots
+        self.pacientes_activos = {}
+        self.estado_triage = 'Libre'
+        self.cola_triage = []
+
+    # --- MÉTODOS DE GESTIÓN DE SLOTS ---
     def asignar_slot(self, paciente):
         """Busca el primer slot libre (None) y se lo asigna al paciente."""
-        if not hasattr(self, 'cantidad_slots'):
-            self.cantidad_slots = 15
-            self.slots = [None] * self.cantidad_slots
-            self.pacientes_activos = {}
-            
         for i in range(self.cantidad_slots):
             if self.slots[i] is None:
                 self.slots[i] = paciente.id
@@ -36,7 +53,7 @@ class Paciente:
 
     # --- MOTOR PRINCIPAL ---
     def ejecutar(self):
-        # 1. Programar la primera llegada calculando RND y Tiempo
+        # 1. Programar la primera llegada
         rnd_llegada, tiempo_llegada = exp_neg(self.params['media_llegadas'])
         self.eventos = {
             'llegada_paciente': tiempo_llegada,
@@ -56,7 +73,6 @@ class Paciente:
             # Chequeo de corte abrupto
             if tiempo_proximo > self.tiempo_x:
                 self.reloj = self.tiempo_x
-                # Acá luego sumaremos los tiempos remanentes (Punto 2 del mail del profe)
                 break
                 
             # Avanzar el reloj
@@ -70,7 +86,6 @@ class Paciente:
                 self.guardar_estado(nombre_evento)
 
     def obtener_proximo_evento(self):
-        # Busca en el diccionario cuál es el evento con el tiempo más chico
         evento_inminente = min(self.eventos, key=self.eventos.get)
         tiempo_inminente = self.eventos[evento_inminente]
         return evento_inminente, tiempo_inminente
@@ -79,14 +94,15 @@ class Paciente:
         if evento == 'llegada_paciente':
             self.evento_llegada_paciente()
         elif evento == 'fin_triage':
-            pass # Lo programamos en el próximo paso
-        # ... (dejamos el resto preparados para después)
+            # Temporal: Apagamos el evento para que no genere un bucle infinito
+            # En el próximo paso programaremos la lógica real de derivación
+            self.eventos['fin_triage'] = float('inf') 
 
     # --- LÓGICA DE EVENTOS ---
     def evento_llegada_paciente(self):
         self.llegadas_totales += 1
         
-        # Regla de oro de simulación: Siempre que llega alguien, programo al siguiente
+        # Programo al siguiente
         rnd_lleg, tiempo_llegada = exp_neg(self.params['media_llegadas'])
         self.eventos['llegada_paciente'] = self.reloj + tiempo_llegada
         
@@ -96,39 +112,35 @@ class Paciente:
         self.asignar_slot(nuevo_paciente)
         
         # Evaluamos el servidor (Triage)
-        if getattr(self, 'estado_triage', 'Libre') == 'Libre':
+        if self.estado_triage == 'Libre':
             self.estado_triage = 'Ocupado'
             nuevo_paciente.estado = 'En Triage'
-            # El triage demora 5 minutos fijos
             self.eventos['fin_triage'] = self.reloj + self.params['tiempo_triage']
         else:
-            if not hasattr(self, 'cola_triage'): self.cola_triage = []
             self.cola_triage.append(nuevo_paciente)
             nuevo_paciente.estado = 'Esperando Triage'
 
     def guardar_estado(self, nombre_evento):
-        # Fila básica para ir viendo que funciona
         fila = {
             "Reloj": round(self.reloj, 4), 
             "Evento": nombre_evento, 
-            "Cola Triage": len(getattr(self, 'cola_triage', [])),
-            "Estado Triage": getattr(self, 'estado_triage', 'Libre')
+            "Cola Triage": len(self.cola_triage),
+            "Estado Triage": self.estado_triage
         }
         self.vector_estado.append(fila)
 
 # ==========================================
-# 2. INTERFAZ GRÁFICA 
+# 2. INTERFAZ GRÁFICA (STREAMLIT)
 # ==========================================
 def main():
     st.set_page_config(page_title="Simulador Guardia Odontológica", layout="wide")
     st.title("🦷 Simulador - Guardia Odontológica Sonrisas")
     
-    # --- BARRA LATERAL (CONFIGURACIONES) ---
     with st.sidebar:
         st.header("⚙️ Parámetros de Simulación")
         
         st.subheader("Corte y Visualización")
-        tiempo_x = st.number_input("Tiempo a simular (X min)", min_value=1.0, value=1000.0, step=10.0)
+        tiempo_x = st.number_input("Tiempo a simular (X min)", min_value=1.0, value=100.0, step=10.0)
         desde_iter_i = st.number_input("Mostrar desde iteración (i)", min_value=0, value=0)
         desde_hora_j = st.number_input("Mostrar desde hora (j)", min_value=0.0, value=0.0)
         
@@ -137,23 +149,18 @@ def main():
         media_llegadas = st.number_input("Media entre llegadas (min)", min_value=0.1, value=30.0)
         tiempo_triage = st.number_input("Demora en Triage (min)", min_value=0.1, value=5.0)
 
-    # --- PANEL CENTRAL ---
     st.info('Ajustá los parámetros en la barra lateral y presioná "Iniciar Simulación".')
     
     if st.button("🚀 Iniciar Simulación", type="primary", use_container_width=True):
         with st.spinner('Ejecutando la simulación...'):
-            
-            # Empaquetamos los parámetros elegidos 
             params = {
                 'media_llegadas': media_llegadas,
                 'tiempo_triage': tiempo_triage
             }
             
-            # Instanciamos y corremos el simulador
             simulador = SimuladorSonrisas(tiempo_x, desde_iter_i, desde_hora_j, params)
             simulador.ejecutar()
             
-            # --- MOSTRAR RESULTADOS ---
             st.success("¡Simulación completada con éxito!")
             
             st.header("📊 Métricas")
@@ -163,7 +170,6 @@ def main():
             
             st.header("📋 Vector de Estado")
             if simulador.vector_estado:
-                # Convertimos la lista de diccionarios a una tabla de Pandas
                 df = pd.DataFrame(simulador.vector_estado)
                 st.dataframe(df, use_container_width=True, hide_index=True)
             else:
