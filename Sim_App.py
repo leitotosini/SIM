@@ -29,9 +29,10 @@ class Paciente:
         self.slot_asignado = -1
 
 class SimuladorSonrisas:
-    def __init__(self, tiempo_x, desde_iter_i, desde_hora_j, params):
+    def __init__(self, tiempo_x, cant_iteraciones_n, mostrar_iteraciones, desde_hora_j, params):
         self.tiempo_x = tiempo_x
-        self.desde_iter_i = desde_iter_i
+        self.cant_iteraciones_n = cant_iteraciones_n
+        self.mostrar_iteraciones = mostrar_iteraciones
         self.desde_hora_j = desde_hora_j
         self.params = params
         
@@ -125,12 +126,14 @@ class SimuladorSonrisas:
         self.t_tiempo_llegada = tiempo_llegada
         self.guardar_estado("Inicio")
         
-        while self.reloj < self.tiempo_x and self.iteracion < 100000:
+        fin_por_tiempo = False
+        # Simula N iteraciones o X tiempo, lo que ocurra primero
+        while self.iteracion < self.cant_iteraciones_n:
             self.iteracion += 1
             self.reset_transient()
             nombre_evento, tiempo_proximo = self.obtener_proximo_evento()
             
-            # CORTE
+            # CORTE por tiempo X
             if tiempo_proximo > self.tiempo_x:
                 if self.estado_cirujano == 'Ocupado':
                     self.acum_tiempo_cirugia += (self.tiempo_x - self.inicio_actividad_cirujano)
@@ -138,17 +141,26 @@ class SimuladorSonrisas:
                     self.acum_tiempo_esterilizacion += (self.tiempo_x - self.inicio_actividad_cirujano)
                 
                 self.reloj = self.tiempo_x
+                fin_por_tiempo = True
                 break
                 
             self.reloj = tiempo_proximo
             self.procesar_evento(nombre_evento)
             
-            if self.iteracion >= self.desde_iter_i and self.reloj >= self.desde_hora_j:
+            # Solo se materializan (i) filas a mostrar, a partir de la hora j
+            if self.reloj >= self.desde_hora_j and len(self.vector_estado) < self.mostrar_iteraciones:
                 self.guardar_estado(nombre_evento)
-                
-        # Si la simulación termina por límite de 100.000 iteraciones, guardamos la última fila
-        if self.iteracion >= 100000:
-            self.guardar_estado("Límite Iteraciones")
+        
+        # Si la simulación terminó por límite de iteraciones N (no por tiempo X),
+        # cerramos la actividad en curso del cirujano hasta el reloj final
+        if not fin_por_tiempo:
+            if self.estado_cirujano == 'Ocupado':
+                self.acum_tiempo_cirugia += (self.reloj - self.inicio_actividad_cirujano)
+            elif self.estado_cirujano == 'Esterilizando':
+                self.acum_tiempo_esterilizacion += (self.reloj - self.inicio_actividad_cirujano)
+        
+        # La última fila siempre es FIN_SIMULACIÓN (sin objetos pacientes)
+        self.guardar_estado("FIN_SIMULACIÓN", con_pacientes=False)
 
     def obtener_proximo_evento(self):
         evento_inminente = min(self.eventos, key=self.eventos.get)
@@ -249,7 +261,7 @@ class SimuladorSonrisas:
             self.eventos['fin_triage'] = float('inf')
 
     def evento_limite_espera(self, id_paciente, nombre_evento):
-        self.eventos[nombre_evento] = float('inf')
+        self.eventos.pop(nombre_evento, None)
         
         if id_paciente in self.pacientes_activos:
             paciente = self.pacientes_activos[id_paciente]
@@ -278,7 +290,7 @@ class SimuladorSonrisas:
             siguiente_paciente.estado = 'Atención Gral'
             self.paciente_en_general = siguiente_paciente
             
-            self.eventos[f'limite_espera_{siguiente_paciente.id}'] = float('inf')
+            self.eventos.pop(f'limite_espera_{siguiente_paciente.id}', None)
             
             espera = self.reloj - siguiente_paciente.tiempo_entrada_cola
             self.acum_espera_general_atendidos += espera
@@ -313,7 +325,7 @@ class SimuladorSonrisas:
                 siguiente_paciente = self.cola_cirujano.pop(0)
                 siguiente_paciente.estado = 'En Cirugía'
                 self.paciente_en_cirujano = siguiente_paciente
-                self.eventos[f'limite_espera_{siguiente_paciente.id}'] = float('inf')
+                self.eventos.pop(f'limite_espera_{siguiente_paciente.id}', None)
                 
                 self.inicio_actividad_cirujano = self.reloj
                 rnd_at, tiempo_at = uniforme(self.params['min_cirugia'], self.params['max_cirugia'])
@@ -334,7 +346,7 @@ class SimuladorSonrisas:
             siguiente_paciente = self.cola_cirujano.pop(0)
             siguiente_paciente.estado = 'En Cirugía'
             self.paciente_en_cirujano = siguiente_paciente
-            self.eventos[f'limite_espera_{siguiente_paciente.id}'] = float('inf')
+            self.eventos.pop(f'limite_espera_{siguiente_paciente.id}', None)
             
             self.inicio_actividad_cirujano = self.reloj
             rnd_at, tiempo_at = uniforme(self.params['min_cirugia'], self.params['max_cirugia'])
@@ -344,7 +356,7 @@ class SimuladorSonrisas:
         else:
             self.estado_cirujano = 'Libre'
 
-    def guardar_estado(self, nombre_evento):
+    def guardar_estado(self, nombre_evento, con_pacientes=True):
         fila = {
             "Iteración": self.iteracion,
             "Reloj": round(self.reloj, 4),
@@ -382,7 +394,7 @@ class SimuladorSonrisas:
         
         for i in range(self.cantidad_slots):
             id_paciente = self.slots[i]
-            if id_paciente is not None and id_paciente in self.pacientes_activos:
+            if con_pacientes and id_paciente is not None and id_paciente in self.pacientes_activos:
                 pac = self.pacientes_activos[id_paciente]
                 fila[f"P{i+1} ID"] = pac.id
                 fila[f"P{i+1} Est"] = pac.estado
@@ -408,7 +420,8 @@ def main():
         
         st.subheader("Corte y Visualización")
         tiempo_x = st.number_input("Tiempo a simular (X min)", min_value=1, value=5000, step=10)
-        desde_iter_i = st.number_input("Mostrar desde iteración (i)", min_value=0, value=0)
+        cant_iteraciones_n = st.number_input("Cantidad de iteraciones a simular (N)", min_value=1, max_value=100000, value=100000)
+        mostrar_iteraciones = st.number_input("Mostrar (i) iteraciones", min_value=1, value=300)
         desde_hora_j = st.number_input("Mostrar desde hora (j)", min_value=0, value=0)
         
         st.divider()
@@ -451,7 +464,7 @@ def main():
                 'tiempo_est': tiempo_est
             }
             
-            simulador = SimuladorSonrisas(tiempo_x, desde_iter_i, desde_hora_j, params)
+            simulador = SimuladorSonrisas(tiempo_x, cant_iteraciones_n, mostrar_iteraciones, desde_hora_j, params)
             simulador.ejecutar()
             
             # CÁLCULOS
@@ -460,27 +473,55 @@ def main():
             
             pct_ocupacion_cirugia = (simulador.acum_tiempo_cirugia / tiempo_x) * 100
             pct_ocupacion_est = (simulador.acum_tiempo_esterilizacion / tiempo_x) * 100
-            
-            st.success("Simulación completada con éxito!!!")
-            
-            st.header("📊 Métricas")
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Llegadas Totales", simulador.llegadas_totales)
-            col2.metric("% Abandonos", f"{pct_abandonos:.2f}%")
-            col3.metric("Espera Prom. Gral", f"{prom_espera_gral:.2f} min")
-            
-            st.subheader("Ocupación del Cirujano")
-            col4, col5, col6 = st.columns(3)
-            col4.metric("% Atendiendo", f"{pct_ocupacion_cirugia:.2f}%")
-            col5.metric("% Esterilizando", f"{pct_ocupacion_est:.2f}%")
-            col6.metric("% Libre", f"{max(0, 100 - pct_ocupacion_cirugia - pct_ocupacion_est):.2f}%")
-            
-            st.header("📋 Vector de Estado")
-            if simulador.vector_estado:
-                df = pd.DataFrame(simulador.vector_estado)
-                st.dataframe(df, use_container_width=True, hide_index=True)
-            else:
-                st.warning("No se registraron iteraciones en el rango solicitado.")
+
+            # Guardamos los resultados en sesión para que persistan ante reruns
+            # (la selección de filas de la tabla provoca un rerun)
+            st.session_state['resultados'] = {
+                'llegadas_totales': simulador.llegadas_totales,
+                'pct_abandonos': pct_abandonos,
+                'prom_espera_gral': prom_espera_gral,
+                'pct_ocupacion_cirugia': pct_ocupacion_cirugia,
+                'pct_ocupacion_est': pct_ocupacion_est,
+                'vector_estado': simulador.vector_estado
+            }
+
+    # Renderizado de resultados (fuera del bloque del botón para que sobrevivan a los reruns)
+    if 'resultados' in st.session_state:
+        res = st.session_state['resultados']
+
+        st.success("Simulación completada con éxito!!!")
+
+        st.header("📊 Métricas")
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Llegadas Totales", res['llegadas_totales'])
+        col2.metric("% Abandonos", f"{res['pct_abandonos']:.2f}%")
+        col3.metric("Espera Prom. Gral", f"{res['prom_espera_gral']:.2f} min")
+
+        st.subheader("Ocupación del Cirujano")
+        col4, col5, col6 = st.columns(3)
+        col4.metric("% Atendiendo", f"{res['pct_ocupacion_cirugia']:.2f}%")
+        col5.metric("% Esterilizando", f"{res['pct_ocupacion_est']:.2f}%")
+        col6.metric("% Libre", f"{max(0, 100 - res['pct_ocupacion_cirugia'] - res['pct_ocupacion_est']):.2f}%")
+
+        st.header("📋 Vector de Estado")
+        if res['vector_estado']:
+            df = pd.DataFrame(res['vector_estado'])
+            column_config = {
+                "Iteración": st.column_config.Column(pinned=True),
+                "Reloj": st.column_config.Column(pinned=True),
+                "Evento": st.column_config.Column(pinned=True),
+            }
+            st.caption("Hacé click en una fila para resaltarla por completo. Las columnas Iteración, Reloj y Evento quedan fijas a la izquierda.")
+            st.dataframe(
+                df,
+                use_container_width=True,
+                hide_index=True,
+                on_select="rerun",
+                selection_mode="single-row",
+                column_config=column_config,
+            )
+        else:
+            st.warning("No se registraron iteraciones en el rango solicitado.")
 
 if __name__ == "__main__":
     main()
