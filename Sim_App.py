@@ -311,7 +311,7 @@ class SimuladorSonrisas:
 # ==========================================
 def main():
     st.set_page_config(page_title="Simulador Guardia Odontológica", layout="wide")
-    st.title("🦷 Simulador - Guardia Odontológica Sonrisas")
+    st.title("🦷 Simulador - Guardia Odontológica Sonrisas - Grupo 9")
     
     with st.sidebar:
         st.header("⚙️ Parámetros de Simulación")
