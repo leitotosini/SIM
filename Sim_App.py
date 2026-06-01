@@ -471,8 +471,9 @@ def main():
             pct_abandonos = (simulador.abandonos_totales / simulador.llegadas_totales * 100) if simulador.llegadas_totales > 0 else 0
             prom_espera_gral = (simulador.acum_espera_general_atendidos / simulador.cant_general_atendidos) if simulador.cant_general_atendidos > 0 else 0
             
-            pct_ocupacion_cirugia = (simulador.acum_tiempo_cirugia / tiempo_x) * 100
-            pct_ocupacion_est = (simulador.acum_tiempo_esterilizacion / tiempo_x) * 100
+            tiempo_final = simulador.reloj
+            pct_ocupacion_cirugia = (simulador.acum_tiempo_cirugia / tiempo_final * 100) if tiempo_final > 0 else 0
+            pct_ocupacion_est = (simulador.acum_tiempo_esterilizacion / tiempo_final * 100) if tiempo_final > 0 else 0
 
             # Guardamos los resultados en sesión para que persistan ante reruns
             # (la selección de filas de la tabla provoca un rerun)
