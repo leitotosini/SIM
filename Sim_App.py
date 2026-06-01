@@ -248,9 +248,9 @@ def main():
         tiempo_paciencia = st.number_input("Paciencia paciente (min)", min_value=1.0, value=30.0)
 
         st.divider()
-            st.subheader("Esterilización Cirujano")
-            pacientes_est = st.number_input("Pacientes para Esterilizar", min_value=1, value=3, step=1)
-            tiempo_est = st.number_input("Tiempo Esterilización (min)", min_value=1.0, value=15.0)
+        st.subheader("Esterilización Cirujano")
+        pacientes_est = st.number_input("Pacientes para Esterilizar", min_value=1, value=3, step=1)
+        tiempo_est = st.number_input("Tiempo Esterilización (min)", min_value=1.0, value=15.0)
 
     st.info('Ajustá los parámetros en la barra lateral y presioná "Iniciar Simulación".')
     
