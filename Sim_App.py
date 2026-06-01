@@ -71,6 +71,28 @@ class SimuladorSonrisas:
         self.paciente_en_cirujano = None
         self.cirujano_atendidos = 0
 
+        # Valores transitorios (solo se muestran en la fila del evento que los genera)
+        self.reset_transient()
+
+    def reset_transient(self):
+        self.t_rnd_llegada = None
+        self.t_tiempo_llegada = None
+        self.t_rnd_derivacion = None
+        self.t_derivado_a = None
+        self.t_rnd_gral = None
+        self.t_tiempo_gral = None
+        self.t_rnd_cirujano = None
+        self.t_tiempo_cirujano = None
+        self.t_hora_limite = None
+        self.t_rnd_espera = None
+        self.t_sigue_esperando = None
+        self.t_hora_fin_est = None
+
+    def _fmt(self, val):
+        if val is None or val == float('inf'):
+            return ""
+        return round(val, 4)
+
     # METODOS DE GESTIÓN DE SLOTS Y PACIENTES
     def asignar_slot(self, paciente):
         for i in range(self.cantidad_slots):
@@ -96,9 +118,16 @@ class SimuladorSonrisas:
             'fin_cirugia': float('inf'),
             'fin_esterilizacion': float('inf')
         }
+
+        # Evento "Inicio": se genera el primer RND/tiempo de llegada en reloj 0
+        self.reset_transient()
+        self.t_rnd_llegada = rnd_llegada
+        self.t_tiempo_llegada = tiempo_llegada
+        self.guardar_estado("Inicio")
         
         while self.reloj < self.tiempo_x and self.iteracion < 100000:
             self.iteracion += 1
+            self.reset_transient()
             nombre_evento, tiempo_proximo = self.obtener_proximo_evento()
             
             # CORTE
@@ -147,6 +176,8 @@ class SimuladorSonrisas:
         
         rnd_lleg, tiempo_llegada = exp_neg(self.params['media_llegadas'])
         self.eventos['llegada_paciente'] = self.reloj + tiempo_llegada
+        self.t_rnd_llegada = rnd_lleg
+        self.t_tiempo_llegada = tiempo_llegada
         
         nuevo_paciente = Paciente(id_paciente=self.llegadas_totales, tiempo_llegada=self.reloj)
         self.pacientes_activos[nuevo_paciente.id] = nuevo_paciente
@@ -164,8 +195,10 @@ class SimuladorSonrisas:
     def evento_fin_triage(self):
         paciente = self.paciente_en_triage
         rnd_derivacion = random.random()
+        self.t_rnd_derivacion = rnd_derivacion
         
         if rnd_derivacion < self.params['prob_general']:
+            self.t_derivado_a = "Atención General"
             if self.estado_general == 'Libre':
                 self.estado_general = 'Ocupado'
                 paciente.estado = 'Atención Gral'
@@ -174,6 +207,8 @@ class SimuladorSonrisas:
                 
                 rnd_at, tiempo_at = exp_neg(self.params['media_gral'])
                 self.eventos['fin_atencion_general'] = self.reloj + tiempo_at
+                self.t_rnd_gral = rnd_at
+                self.t_tiempo_gral = tiempo_at
             else:
                 paciente.tiempo_entrada_cola = self.reloj
                 self.cola_general.append(paciente)
@@ -183,6 +218,7 @@ class SimuladorSonrisas:
                 paciente.hora_limite_espera = tiempo_limite
                 self.eventos[f'limite_espera_{paciente.id}'] = tiempo_limite
         else:
+            self.t_derivado_a = "Cirugía"
             if self.estado_cirujano == 'Libre':
                 self.estado_cirujano = 'Ocupado'
                 self.inicio_actividad_cirujano = self.reloj
@@ -191,6 +227,8 @@ class SimuladorSonrisas:
                 
                 rnd_at, tiempo_at = uniforme(self.params['min_cirugia'], self.params['max_cirugia'])
                 self.eventos['fin_cirugia'] = self.reloj + tiempo_at
+                self.t_rnd_cirujano = rnd_at
+                self.t_tiempo_cirujano = tiempo_at
             else:
                 paciente.tiempo_entrada_cola = self.reloj
                 self.cola_cirujano.append(paciente)
@@ -217,7 +255,10 @@ class SimuladorSonrisas:
             paciente = self.pacientes_activos[id_paciente]
             if paciente.estado in ['Cola Gral', 'Cola Cirujano']:
                 rnd_abandono = random.random()
+                self.t_hora_limite = paciente.hora_limite_espera
+                self.t_rnd_espera = rnd_abandono
                 if rnd_abandono < self.params['prob_abandono']:
+                    self.t_sigue_esperando = "No"
                     self.abandonos_totales += 1
                     if paciente.estado == 'Cola Gral':
                         self.cola_general.remove(paciente)
@@ -225,6 +266,8 @@ class SimuladorSonrisas:
                         self.cola_cirujano.remove(paciente)
                     
                     self.eliminar_paciente(id_paciente)
+                else:
+                    self.t_sigue_esperando = "Sí"
 
     def evento_fin_atencion_general(self):
         paciente_saliente = self.paciente_en_general
@@ -243,6 +286,8 @@ class SimuladorSonrisas:
             
             rnd_at, tiempo_at = exp_neg(self.params['media_gral'])
             self.eventos['fin_atencion_general'] = self.reloj + tiempo_at
+            self.t_rnd_gral = rnd_at
+            self.t_tiempo_gral = tiempo_at
         else:
             self.estado_general = 'Libre'
             self.paciente_en_general = None
@@ -261,6 +306,7 @@ class SimuladorSonrisas:
             self.paciente_en_cirujano = None
             self.eventos['fin_cirugia'] = float('inf')
             self.eventos['fin_esterilizacion'] = self.reloj + self.params['tiempo_est']
+            self.t_hora_fin_est = self.eventos['fin_esterilizacion']
             self.cirujano_atendidos = 0
         else:
             if len(self.cola_cirujano) > 0:
@@ -272,6 +318,8 @@ class SimuladorSonrisas:
                 self.inicio_actividad_cirujano = self.reloj
                 rnd_at, tiempo_at = uniforme(self.params['min_cirugia'], self.params['max_cirugia'])
                 self.eventos['fin_cirugia'] = self.reloj + tiempo_at
+                self.t_rnd_cirujano = rnd_at
+                self.t_tiempo_cirujano = tiempo_at
             else:
                 self.estado_cirujano = 'Libre'
                 self.paciente_en_cirujano = None
@@ -291,21 +339,45 @@ class SimuladorSonrisas:
             self.inicio_actividad_cirujano = self.reloj
             rnd_at, tiempo_at = uniforme(self.params['min_cirugia'], self.params['max_cirugia'])
             self.eventos['fin_cirugia'] = self.reloj + tiempo_at
+            self.t_rnd_cirujano = rnd_at
+            self.t_tiempo_cirujano = tiempo_at
         else:
             self.estado_cirujano = 'Libre'
 
     def guardar_estado(self, nombre_evento):
         fila = {
             "Iteración": self.iteracion,
-            "Reloj": round(self.reloj, 4), 
-            "Evento": nombre_evento, 
+            "Reloj": round(self.reloj, 4),
+            "Evento": nombre_evento,
+            "RND llegada pacientes": self._fmt(self.t_rnd_llegada),
+            "tiempo llegada paciente": self._fmt(self.t_tiempo_llegada),
+            "hora llegada paciente": self._fmt(self.eventos['llegada_paciente']),
+            "hora fin triage": self._fmt(self.eventos['fin_triage']),
+            "RND derivación": self._fmt(self.t_rnd_derivacion),
+            "derivado a": self.t_derivado_a if self.t_derivado_a is not None else "",
+            "RND atención general": self._fmt(self.t_rnd_gral),
+            "tiempo atención general": self._fmt(self.t_tiempo_gral),
+            "hora fin atención general": self._fmt(self.eventos['fin_atencion_general']),
+            "RND cirujano": self._fmt(self.t_rnd_cirujano),
+            "tiempo cirujano": self._fmt(self.t_tiempo_cirujano),
+            "hora fin cirujano": self._fmt(self.eventos['fin_cirugia']),
+            "hora límite espera": self._fmt(self.t_hora_limite),
+            "RND sigue esperando": self._fmt(self.t_rnd_espera),
+            "Sigue esperando?": self.t_sigue_esperando if self.t_sigue_esperando is not None else "",
+            "hora fin esterilización": self._fmt(self.t_hora_fin_est),
             "Est Triage": self.estado_triage,
             "Cola Triage": len(self.cola_triage),
             "Est Gral": self.estado_general,
             "Cola Gral": len(self.cola_general),
             "Est Cirujano": self.estado_cirujano,
             "Cola Cirujano": len(self.cola_cirujano),
-            "At. Cirujano": self.cirujano_atendidos
+            "Cant. cirugías p/ esterilización": self.cirujano_atendidos,
+            "Acumulador tiempo en cirugía": round(self.acum_tiempo_cirugia, 4),
+            "Acumulador tiempo en esterilización": round(self.acum_tiempo_esterilizacion, 4),
+            "Contador de pacientes": self.llegadas_totales,
+            "Contador pacientes sin atención": self.abandonos_totales,
+            "Acumulador tiempo espera de atención general": round(self.acum_espera_general_atendidos, 4),
+            "Contador de pacientes generales atendidos": self.cant_general_atendidos
         }
         
         for i in range(self.cantidad_slots):
@@ -314,9 +386,13 @@ class SimuladorSonrisas:
                 pac = self.pacientes_activos[id_paciente]
                 fila[f"P{i+1} ID"] = pac.id
                 fila[f"P{i+1} Est"] = pac.estado
+                fila[f"P{i+1} Hora llegada a cola"] = self._fmt(pac.tiempo_entrada_cola)
+                fila[f"P{i+1} Hora límite espera"] = self._fmt(pac.hora_limite_espera)
             else:
                 fila[f"P{i+1} ID"] = "-"
                 fila[f"P{i+1} Est"] = "-"
+                fila[f"P{i+1} Hora llegada a cola"] = "-"
+                fila[f"P{i+1} Hora límite espera"] = "-"
                 
         self.vector_estado.append(fila)
 
