@@ -29,9 +29,8 @@ class Paciente:
         self.slot_asignado = -1
 
 class SimuladorSonrisas:
-    def __init__(self, tiempo_x, cant_iteraciones_n, mostrar_iteraciones, desde_hora_j, params):
+    def __init__(self, tiempo_x, mostrar_iteraciones, desde_hora_j, params):
         self.tiempo_x = tiempo_x
-        self.cant_iteraciones_n = cant_iteraciones_n
         self.mostrar_iteraciones = mostrar_iteraciones
         self.desde_hora_j = desde_hora_j
         self.params = params
@@ -76,6 +75,7 @@ class SimuladorSonrisas:
         self.reset_transient()
 
     def reset_transient(self):
+        self.t_id_paciente = None
         self.t_rnd_llegada = None
         self.t_tiempo_llegada = None
         self.t_rnd_derivacion = None
@@ -127,8 +127,8 @@ class SimuladorSonrisas:
         self.guardar_estado("Inicio")
         
         fin_por_tiempo = False
-        # Simula N iteraciones o X tiempo, lo que ocurra primero
-        while self.iteracion < self.cant_iteraciones_n:
+        # Simula hasta el tiempo X o como máximo 100.000 iteraciones, lo que ocurra primero
+        while self.iteracion < 100000:
             self.iteracion += 1
             self.reset_transient()
             nombre_evento, tiempo_proximo = self.obtener_proximo_evento()
@@ -192,6 +192,7 @@ class SimuladorSonrisas:
         self.t_tiempo_llegada = tiempo_llegada
         
         nuevo_paciente = Paciente(id_paciente=self.llegadas_totales, tiempo_llegada=self.reloj)
+        self.t_id_paciente = nuevo_paciente.id
         self.pacientes_activos[nuevo_paciente.id] = nuevo_paciente
         self.asignar_slot(nuevo_paciente)
         
@@ -206,6 +207,7 @@ class SimuladorSonrisas:
 
     def evento_fin_triage(self):
         paciente = self.paciente_en_triage
+        self.t_id_paciente = paciente.id
         rnd_derivacion = random.random()
         self.t_rnd_derivacion = rnd_derivacion
         
@@ -262,6 +264,7 @@ class SimuladorSonrisas:
 
     def evento_limite_espera(self, id_paciente, nombre_evento):
         self.eventos.pop(nombre_evento, None)
+        self.t_id_paciente = id_paciente
         
         if id_paciente in self.pacientes_activos:
             paciente = self.pacientes_activos[id_paciente]
@@ -283,6 +286,7 @@ class SimuladorSonrisas:
 
     def evento_fin_atencion_general(self):
         paciente_saliente = self.paciente_en_general
+        self.t_id_paciente = paciente_saliente.id
         self.eliminar_paciente(paciente_saliente.id)
         
         if len(self.cola_general) > 0:
@@ -307,6 +311,7 @@ class SimuladorSonrisas:
 
     def evento_fin_cirugia(self):
         paciente_saliente = self.paciente_en_cirujano
+        self.t_id_paciente = paciente_saliente.id
         self.eliminar_paciente(paciente_saliente.id)
         
         self.acum_tiempo_cirugia += (self.reloj - self.inicio_actividad_cirujano)
@@ -361,6 +366,7 @@ class SimuladorSonrisas:
             "Iteración": self.iteracion,
             "Reloj": round(self.reloj, 4),
             "Evento": nombre_evento,
+            "ID Paciente": self.t_id_paciente if self.t_id_paciente is not None else "",
             "RND llegada pacientes": self._fmt(self.t_rnd_llegada),
             "tiempo llegada paciente": self._fmt(self.t_tiempo_llegada),
             "hora llegada paciente": self._fmt(self.eventos['llegada_paciente']),
@@ -420,7 +426,6 @@ def main():
         
         st.subheader("Corte y Visualización")
         tiempo_x = st.number_input("Tiempo a simular (X min)", min_value=1, value=5000, step=10)
-        cant_iteraciones_n = st.number_input("Cantidad de iteraciones a simular (N)", min_value=1, max_value=100000, value=100000)
         mostrar_iteraciones = st.number_input("Mostrar (i) iteraciones", min_value=1, value=300)
         desde_hora_j = st.number_input("Mostrar desde hora (j)", min_value=0, value=0)
         
@@ -464,7 +469,7 @@ def main():
                 'tiempo_est': tiempo_est
             }
             
-            simulador = SimuladorSonrisas(tiempo_x, cant_iteraciones_n, mostrar_iteraciones, desde_hora_j, params)
+            simulador = SimuladorSonrisas(tiempo_x, mostrar_iteraciones, desde_hora_j, params)
             simulador.ejecutar()
             
             # CÁLCULOS
@@ -511,8 +516,9 @@ def main():
                 "Iteración": st.column_config.Column(pinned=True),
                 "Reloj": st.column_config.Column(pinned=True),
                 "Evento": st.column_config.Column(pinned=True),
+                "ID Paciente": st.column_config.Column(pinned=True),
             }
-            st.caption("Hacé click en una fila para resaltarla por completo. Las columnas Iteración, Reloj y Evento quedan fijas a la izquierda.")
+            st.caption("Hacé click en una fila para resaltarla por completo. Las columnas Iteración, Reloj, Evento e ID Paciente quedan fijas a la izquierda.")
             st.dataframe(
                 df,
                 use_container_width=True,
