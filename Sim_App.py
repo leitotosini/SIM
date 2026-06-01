@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import math
 import random
+from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
 
 # ==========================================
 # 1. FUNCIONES ESTADÍSTICAS
@@ -366,7 +367,7 @@ class SimuladorSonrisas:
             "Iteración": self.iteracion,
             "Reloj": round(self.reloj, 4),
             "Evento": nombre_evento,
-            "ID Paciente": self.t_id_paciente if self.t_id_paciente is not None else "",
+            "ID Paciente": str(self.t_id_paciente) if self.t_id_paciente is not None else "",
             "RND llegada pacientes": self._fmt(self.t_rnd_llegada),
             "tiempo llegada paciente": self._fmt(self.t_tiempo_llegada),
             "hora llegada paciente": self._fmt(self.eventos['llegada_paciente']),
@@ -512,20 +513,48 @@ def main():
         st.header("📋 Vector de Estado")
         if res['vector_estado']:
             df = pd.DataFrame(res['vector_estado'])
-            column_config = {
-                "Iteración": st.column_config.Column(pinned=True),
-                "Reloj": st.column_config.Column(pinned=True),
-                "Evento": st.column_config.Column(pinned=True),
-                "ID Paciente": st.column_config.Column(pinned=True),
+            st.caption("Hacé click en cualquier celda para resaltar la fila completa. Las columnas Iteración, Reloj, Evento e ID Paciente quedan fijas a la izquierda y los encabezados se ajustan en varias líneas.")
+
+            gb = GridOptionsBuilder.from_dataframe(df)
+            # Encabezados en varias líneas (por palabra) + ancho mínimo para que no se encojan
+            gb.configure_default_column(
+                resizable=True,
+                filterable=False,
+                sortable=False,
+                suppressMenu=True,
+                wrapHeaderText=True,
+                autoHeaderHeight=True,
+                width=130,
+                minWidth=130,
+            )
+            # Selección de fila completa al hacer click en cualquier celda (sin checkbox)
+            gb.configure_selection(
+                selection_mode="single",
+                use_checkbox=False,
+                suppressRowClickSelection=False,
+            )
+            # Columnas fijas a la izquierda
+            for col in ["Iteración", "Reloj", "Evento"]:
+                gb.configure_column(col, pinned="left", width=105, minWidth=105)
+            # ID Paciente: ancho mínimo para que el encabezado quede en 2 renglones (ID / Paciente)
+            gb.configure_column("ID Paciente", pinned="left", width=90, minWidth=90, maxWidth=90)
+            grid_options = gb.build()
+
+            # Fuente más grande para encabezados y celdas
+            custom_css = {
+                ".ag-header-cell-label": {"font-size": "16px", "font-weight": "600"},
+                ".ag-cell": {"font-size": "15px"},
             }
-            st.caption("Hacé click en una fila para resaltarla por completo. Las columnas Iteración, Reloj, Evento e ID Paciente quedan fijas a la izquierda.")
-            st.dataframe(
+
+            AgGrid(
                 df,
-                use_container_width=True,
-                hide_index=True,
-                on_select="rerun",
-                selection_mode="single-row",
-                column_config=column_config,
+                gridOptions=grid_options,
+                update_mode=GridUpdateMode.SELECTION_CHANGED,
+                fit_columns_on_grid_load=False,
+                allow_unsafe_jscode=True,
+                custom_css=custom_css,
+                height=520,
+                theme="streamlit",
             )
         else:
             st.warning("No se registraron iteraciones en el rango solicitado.")
