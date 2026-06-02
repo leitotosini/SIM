@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import math
 import random
-from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
+from st_aggrid import AgGrid, GridOptionsBuilder
 
 # ==========================================
 # 1. FUNCIONES ESTADÍSTICAS
@@ -512,50 +512,58 @@ def main():
 
         st.header("📋 Vector de Estado")
         if res['vector_estado']:
-            df = pd.DataFrame(res['vector_estado'])
             st.caption("Hacé click en cualquier celda para resaltar la fila completa. Las columnas Iteración, Reloj, Evento e ID Paciente quedan fijas a la izquierda y los encabezados se ajustan en varias líneas.")
 
-            gb = GridOptionsBuilder.from_dataframe(df)
-            # Encabezados en varias líneas (por palabra) + ancho mínimo para que no se encojan
-            gb.configure_default_column(
-                resizable=True,
-                filterable=False,
-                sortable=False,
-                suppressMenu=True,
-                wrapHeaderText=True,
-                autoHeaderHeight=True,
-                width=130,
-                minWidth=130,
-            )
-            # Selección de fila completa al hacer click en cualquier celda (sin checkbox)
-            gb.configure_selection(
-                selection_mode="single",
-                use_checkbox=False,
-                suppressRowClickSelection=False,
-            )
-            # Columnas fijas a la izquierda
-            for col in ["Iteración", "Reloj", "Evento"]:
-                gb.configure_column(col, pinned="left", width=105, minWidth=105)
-            # ID Paciente: ancho mínimo para que el encabezado quede en 2 renglones (ID / Paciente)
-            gb.configure_column("ID Paciente", pinned="left", width=90, minWidth=90, maxWidth=90)
-            grid_options = gb.build()
+            with st.spinner(f"Generando la tabla ({len(res['vector_estado']):,} filas), aguardá unos segundos..."):
+                df = pd.DataFrame(res['vector_estado'])
 
-            # Fuente más grande para encabezados y celdas
-            custom_css = {
-                ".ag-header-cell-label": {"font-size": "16px", "font-weight": "600"},
-                ".ag-cell": {"font-size": "15px"},
-            }
+                gb = GridOptionsBuilder.from_dataframe(df)
+                # Encabezados en varias líneas (por palabra) + ancho mínimo para que no se encojan
+                gb.configure_default_column(
+                    resizable=True,
+                    filterable=False,
+                    sortable=False,
+                    suppressMenu=True,
+                    wrapHeaderText=True,
+                    autoHeaderHeight=True,
+                    width=130,
+                    minWidth=130,
+                )
+                # Selección de fila completa al hacer click en cualquier celda (sin checkbox)
+                gb.configure_selection(
+                    selection_mode="single",
+                    use_checkbox=False,
+                    suppressRowClickSelection=False,
+                )
+                # Paginación: el grid maneja la tabla por páginas en vez de disponer
+                # todas las filas de una (evita que el navegador se quede "sin responder")
+                gb.configure_pagination(
+                    paginationAutoPageSize=False,
+                    paginationPageSize=5000,
+                )
+                # Columnas fijas a la izquierda
+                for col in ["Iteración", "Reloj", "Evento"]:
+                    gb.configure_column(col, pinned="left", width=105, minWidth=105)
+                # ID Paciente: ancho mínimo para que el encabezado quede en 2 renglones (ID / Paciente)
+                gb.configure_column("ID Paciente", pinned="left", width=90, minWidth=90, maxWidth=90)
+                grid_options = gb.build()
 
-            AgGrid(
-                df,
-                gridOptions=grid_options,
-                update_mode=GridUpdateMode.SELECTION_CHANGED,
-                fit_columns_on_grid_load=False,
-                allow_unsafe_jscode=True,
-                custom_css=custom_css,
-                height=520,
-                theme="streamlit",
-            )
+                # Fuente más grande para encabezados y celdas
+                custom_css = {
+                    ".ag-header-cell-label": {"font-size": "16px", "font-weight": "600"},
+                    ".ag-cell": {"font-size": "15px"},
+                }
+
+                AgGrid(
+                    df,
+                    gridOptions=grid_options,
+                    update_on=[],
+                    fit_columns_on_grid_load=False,
+                    allow_unsafe_jscode=True,
+                    custom_css=custom_css,
+                    height=520,
+                    theme="streamlit",
+                )
         else:
             st.warning("No se registraron iteraciones en el rango solicitado.")
 
