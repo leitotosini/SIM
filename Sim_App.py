@@ -366,7 +366,7 @@ class SimuladorSonrisas:
             "Iteración": self.iteracion,
             "Reloj": round(self.reloj, 4),
             "Evento": nombre_evento,
-            "ID Paciente": self.t_id_paciente if self.t_id_paciente is not None else "",
+            "ID Paciente": str(self.t_id_paciente) if self.t_id_paciente is not None else "",
             "RND llegada pacientes": self._fmt(self.t_rnd_llegada),
             "tiempo llegada paciente": self._fmt(self.t_tiempo_llegada),
             "hora llegada paciente": self._fmt(self.eventos['llegada_paciente']),
