@@ -220,4 +220,133 @@ class SimuladorSonrisas:
                 self.cola_general.append(paciente)
                 paciente.estado = 'Cola Gral'
                 
-                tiempo_limite = self.reloj + self.params['tiempo_p
+                tiempo_limite = self.reloj + self.params['tiempo_paciencia']
+                paciente.hora_limite_espera = tiempo_limite
+                self.eventos[f'limite_espera_{paciente.id}'] = tiempo_limite
+        else:
+            self.t_derivado_a = "Cirugía"
+            if self.estado_cirujano == 'Libre':
+                self.estado_cirujano = 'Ocupado'
+                self.inicio_actividad_cirujano = self.reloj
+                paciente.estado = 'En Cirugía'
+                self.paciente_en_cirujano = paciente
+                
+                rnd_at, tiempo_at = uniforme(self.params['min_cirugia'], self.params['max_cirugia'])
+                self.eventos['fin_cirugia'] = self.reloj + tiempo_at
+                self.t_rnd_cirujano = rnd_at
+                self.t_tiempo_cirujano = tiempo_at
+            else:
+                paciente.tiempo_entrada_cola = self.reloj
+                self.cola_cirujano.append(paciente)
+                paciente.estado = 'Cola Cirujano'
+                
+                tiempo_limite = self.reloj + self.params['tiempo_paciencia']
+                paciente.hora_limite_espera = tiempo_limite
+                self.eventos[f'limite_espera_{paciente.id}'] = tiempo_limite
+
+        if len(self.cola_triage) > 0:
+            siguiente_paciente = self.cola_triage.pop(0)
+            siguiente_paciente.estado = 'En Triage'
+            self.paciente_en_triage = siguiente_paciente
+            self.eventos['fin_triage'] = self.reloj + self.params['tiempo_triage']
+        else:
+            self.estado_triage = 'Libre'
+            self.paciente_en_triage = None
+            self.eventos['fin_triage'] = float('inf')
+
+    def evento_limite_espera(self, id_paciente, nombre_evento):
+        self.eventos.pop(nombre_evento, None)
+        self.t_id_paciente = id_paciente
+        
+        if id_paciente in self.pacientes_activos:
+            paciente = self.pacientes_activos[id_paciente]
+            if paciente.estado in ['Cola Gral', 'Cola Cirujano']:
+                rnd_abandono = random.random()
+                self.t_hora_limite = paciente.hora_limite_espera
+                self.t_rnd_espera = rnd_abandono
+                if rnd_abandono < self.params['prob_abandono']:
+                    self.t_sigue_esperando = "No"
+                    self.abandonos_totales += 1
+                    if paciente.estado == 'Cola Gral':
+                        self.cola_general.remove(paciente)
+                    elif paciente.estado == 'Cola Cirujano':
+                        self.cola_cirujano.remove(paciente)
+                    
+                    self.eliminar_paciente(id_paciente)
+                else:
+                    self.t_sigue_esperando = "Sí"
+
+    def evento_fin_atencion_general(self):
+        paciente_saliente = self.paciente_en_general
+        self.t_id_paciente = paciente_saliente.id
+        self.eliminar_paciente(paciente_saliente.id)
+        
+        if len(self.cola_general) > 0:
+            siguiente_paciente = self.cola_general.pop(0)
+            siguiente_paciente.estado = 'Atención Gral'
+            self.paciente_en_general = siguiente_paciente
+            
+            self.eventos.pop(f'limite_espera_{siguiente_paciente.id}', None)
+            
+            espera = self.reloj - siguiente_paciente.tiempo_entrada_cola
+            self.acum_espera_general_atendidos += espera
+            self.cant_general_atendidos += 1
+            
+            rnd_at, tiempo_at = exp_neg(self.params['media_gral'])
+            self.eventos['fin_atencion_general'] = self.reloj + tiempo_at
+            self.t_rnd_gral = rnd_at
+            self.t_tiempo_gral = tiempo_at
+        else:
+            self.estado_general = 'Libre'
+            self.paciente_en_general = None
+            self.eventos['fin_atencion_general'] = float('inf')
+
+    def evento_fin_cirugia(self):
+        paciente_saliente = self.paciente_en_cirujano
+        self.t_id_paciente = paciente_saliente.id
+        self.eliminar_paciente(paciente_saliente.id)
+        
+        self.acum_tiempo_cirugia += (self.reloj - self.inicio_actividad_cirujano)
+        self.cirujano_atendidos += 1
+        self.historico_cirujano += 1 
+        
+        if self.cirujano_atendidos >= self.params['pacientes_est']:
+            self.estado_cirujano = 'Esterilizando'
+            self.inicio_actividad_cirujano = self.reloj
+            self.paciente_en_cirujano = None
+            self.eventos['fin_cirugia'] = float('inf')
+            self.eventos['fin_esterilizacion'] = self.reloj + self.params['tiempo_est']
+            self.t_hora_fin_est = self.eventos['fin_esterilizacion']
+            self.cirujano_atendidos = 0
+        else:
+            if len(self.cola_cirujano) > 0:
+                siguiente_paciente = self.cola_cirujano.pop(0)
+                siguiente_paciente.estado = 'En Cirugía'
+                self.paciente_en_cirujano = siguiente_paciente
+                self.eventos.pop(f'limite_espera_{siguiente_paciente.id}', None)
+                
+                self.inicio_actividad_cirujano = self.reloj
+                rnd_at, tiempo_at = uniforme(self.params['min_cirugia'], self.params['max_cirugia'])
+                self.eventos['fin_cirugia'] = self.reloj + tiempo_at
+                self.t_rnd_cirujano = rnd_at
+                self.t_tiempo_cirujano = tiempo_at
+            else:
+                self.estado_cirujano = 'Libre'
+                self.paciente_en_cirujano = None
+                self.eventos['fin_cirugia'] = float('inf')
+
+    def evento_fin_esterilizacion(self):
+        self.eventos['fin_esterilizacion'] = float('inf')
+        
+        self.acum_tiempo_esterilizacion += (self.reloj - self.inicio_actividad_cirujano)
+        
+        if len(self.cola_cirujano) > 0:
+            siguiente_paciente = self.cola_cirujano.pop(0)
+            siguiente_paciente.estado = 'En Cirugía'
+            self.paciente_en_cirujano = siguiente_paciente
+            self.eventos.pop(f'limite_espera_{siguiente_paciente.id}', None)
+            
+            self.inicio_actividad_cirujano = self.reloj
+            rnd_at, tiempo_at = uniforme(self.params['min_cirugia'], self.params['max_cirugia'])
+            self.eventos['fin_cirugia'] = self.reloj + tiempo_at
+            self.t
