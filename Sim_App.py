@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import math
 import random
+import plotly.express as px  # <-- NUEVA LIBRERÍA DE GRÁFICOS
 
 # ==========================================
 # 1. FUNCIONES ESTADÍSTICAS
@@ -71,7 +72,7 @@ class SimuladorSonrisas:
         self.paciente_en_cirujano = None
         self.cirujano_atendidos = 0
 
-        # Valores transitorios (solo se muestran en la fila del evento que los genera)
+        # Valores transitorios
         self.reset_transient()
 
     def reset_transient(self):
@@ -120,14 +121,13 @@ class SimuladorSonrisas:
             'fin_esterilizacion': float('inf')
         }
 
-        # Evento "Inicio": se genera el primer RND/tiempo de llegada en reloj 0
+        # Evento "Inicio"
         self.reset_transient()
         self.t_rnd_llegada = rnd_llegada
         self.t_tiempo_llegada = tiempo_llegada
         self.guardar_estado("Inicio")
         
         fin_por_tiempo = False
-        # Simula hasta el tiempo X o como máximo 100.000 iteraciones, lo que ocurra primero
         while self.iteracion < 100000:
             self.iteracion += 1
             self.reset_transient()
@@ -147,19 +147,16 @@ class SimuladorSonrisas:
             self.reloj = tiempo_proximo
             self.procesar_evento(nombre_evento)
             
-            # Solo se materializan (i) filas a mostrar, a partir de la hora j
             if self.reloj >= self.desde_hora_j and len(self.vector_estado) < self.mostrar_iteraciones:
                 self.guardar_estado(nombre_evento)
         
-        # Si la simulación terminó por límite de iteraciones N (no por tiempo X),
-        # cerramos la actividad en curso del cirujano hasta el reloj final
         if not fin_por_tiempo:
             if self.estado_cirujano == 'Ocupado':
                 self.acum_tiempo_cirugia += (self.reloj - self.inicio_actividad_cirujano)
             elif self.estado_cirujano == 'Esterilizando':
                 self.acum_tiempo_esterilizacion += (self.reloj - self.inicio_actividad_cirujano)
         
-        # La última fila siempre es FIN_SIMULACIÓN (sin objetos pacientes)
+        # La última fila es siempre FIN_SIMULACIÓN (con_pacientes=False corta los objetos temporales)
         self.guardar_estado("FIN_SIMULACIÓN", con_pacientes=False)
 
     def obtener_proximo_evento(self):
@@ -481,7 +478,6 @@ def main():
             pct_ocupacion_est = (simulador.acum_tiempo_esterilizacion / tiempo_final * 100) if tiempo_final > 0 else 0
 
             # Guardamos los resultados en sesión para que persistan ante reruns
-            # (la selección de filas de la tabla provoca un rerun)
             st.session_state['resultados'] = {
                 'llegadas_totales': simulador.llegadas_totales,
                 'pct_abandonos': pct_abandonos,
@@ -495,40 +491,77 @@ def main():
     if 'resultados' in st.session_state:
         res = st.session_state['resultados']
 
-        st.success("Simulación completada con éxito!!!")
+        st.success("Simulación completada con éxito")
 
-        st.header("📊 Métricas")
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Llegadas Totales", res['llegadas_totales'])
-        col2.metric("% Abandonos", f"{res['pct_abandonos']:.2f}%")
-        col3.metric("Espera Prom. Gral", f"{res['prom_espera_gral']:.2f} min")
+        # --- APLICAMOS PESTAÑAS (TABS) PARA CAMBIAR TOTALMENTE LA ESTRUCTURA VISUAL ---
+        tab1, tab2, tab3 = st.tabs(["📊 Dashboard Analítico", "📋 Vector de Estado", "🏁 Fila de Corte (Tiempo X)"])
 
-        st.subheader("Ocupación del Cirujano")
-        col4, col5, col6 = st.columns(3)
-        col4.metric("% Atendiendo", f"{res['pct_ocupacion_cirugia']:.2f}%")
-        col5.metric("% Esterilizando", f"{res['pct_ocupacion_est']:.2f}%")
-        col6.metric("% Libre", f"{max(0, 100 - res['pct_ocupacion_cirugia'] - res['pct_ocupacion_est']):.2f}%")
+        with tab1:
+            st.header("Métricas Principales")
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Llegadas Totales", res['llegadas_totales'])
+            col2.metric("% Abandonos", f"{res['pct_abandonos']:.2f}%")
+            col3.metric("Espera Prom. Gral", f"{res['prom_espera_gral']:.2f} min")
 
-        st.header("📋 Vector de Estado")
-        if res['vector_estado']:
-            df = pd.DataFrame(res['vector_estado'])
-            column_config = {
-                "Iteración": st.column_config.Column(pinned=True),
-                "Reloj": st.column_config.Column(pinned=True),
-                "Evento": st.column_config.Column(pinned=True),
-                "ID Paciente": st.column_config.Column(pinned=True),
-            }
-            st.caption("Hacé click en una fila para resaltarla por completo. Las columnas Iteración, Reloj, Evento e ID Paciente quedan fijas a la izquierda.")
-            st.dataframe(
-                df,
-                use_container_width=True,
-                hide_index=True,
-                on_select="rerun",
-                selection_mode="single-row",
-                column_config=column_config,
-            )
-        else:
-            st.warning("No se registraron iteraciones en el rango solicitado.")
+            st.divider()
+            st.subheader("Ocupación del Cirujano")
+            
+            # Preparar datos para el gráfico interactivo de Dona
+            libre = max(0, 100 - res['pct_ocupacion_cirugia'] - res['pct_ocupacion_est'])
+            df_pie = pd.DataFrame({
+                'Estado': ['Atendiendo', 'Esterilizando', 'Libre'],
+                'Porcentaje': [res['pct_ocupacion_cirugia'], res['pct_ocupacion_est'], libre]
+            })
+            
+            fig = px.pie(df_pie, values='Porcentaje', names='Estado', hole=0.4,
+                         color='Estado',
+                         color_discrete_map={'Atendiendo':'#EF553B', 'Esterilizando':'#636EFA', 'Libre':'#00CC96'})
+            
+            # Repartimos la vista en dos columnas: el gráfico a la izquierda y el desglose de métricas a la derecha
+            col_graf, col_num = st.columns([2, 1])
+            with col_graf:
+                st.plotly_chart(fig, use_container_width=True)
+            with col_num:
+                st.write("") # Espaciador para centrar verticalmente
+                st.write("")
+                st.metric("% Atendiendo", f"{res['pct_ocupacion_cirugia']:.2f}%")
+                st.metric("% Esterilizando", f"{res['pct_ocupacion_est']:.2f}%")
+                st.metric("% Libre", f"{libre:.2f}%")
+
+        with tab2:
+            st.header("📋 Vector de Estado")
+            if res['vector_estado']:
+                df = pd.DataFrame(res['vector_estado'])
+                
+                # Excluimos la última fila del cuadro general para que destaque solo en la pestaña 3
+                df_general = df.iloc[:-1]
+                
+                column_config = {
+                    "Iteración": st.column_config.Column(pinned=True),
+                    "Reloj": st.column_config.Column(pinned=True),
+                    "Evento": st.column_config.Column(pinned=True),
+                    "ID Paciente": st.column_config.Column(pinned=True),
+                }
+                st.caption("Grilla general de eventos (las primeras columnas se fijan al hacer scroll).")
+                st.dataframe(
+                    df_general,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config=column_config,
+                )
+            else:
+                st.warning("No se registraron iteraciones en el rango solicitado.")
+
+        with tab3:
+            st.header("🏁 Última Fila (Corte Abrupto)")
+            st.info("Fila correspondiente al instante X exacto.")
+            if res['vector_estado']:
+                df = pd.DataFrame(res['vector_estado'])
+                
+                # Rescatamos matemáticamente la última posición del vector
+                df_ultima = df.iloc[[-1]]
+                
+                st.dataframe(df_ultima, use_container_width=True, hide_index=True)
 
 if __name__ == "__main__":
     main()
