@@ -349,4 +349,334 @@ class SimuladorSonrisas:
             self.inicio_actividad_cirujano = self.reloj
             rnd_at, tiempo_at = uniforme(self.params['min_cirugia'], self.params['max_cirugia'])
             self.eventos['fin_cirugia'] = self.reloj + tiempo_at
-            self.t
+            self.t_rnd_cirujano = rnd_at
+            self.t_tiempo_cirujano = tiempo_at
+        else:
+            self.estado_cirujano = 'Libre'
+
+    def guardar_estado(self, nombre_evento, con_pacientes=True):
+        fila = {
+            "Iteración": self.iteracion,
+            "Reloj": round(self.reloj, 4),
+            "Evento": nombre_evento,
+            "ID Paciente": str(self.t_id_paciente) if self.t_id_paciente is not None else "",
+            "RND llegada pacientes": self._fmt(self.t_rnd_llegada),
+            "tiempo llegada paciente": self._fmt(self.t_tiempo_llegada),
+            "hora llegada paciente": self._fmt(self.eventos['llegada_paciente']),
+            "hora fin triage": self._fmt(self.eventos['fin_triage']),
+            "RND derivación": self._fmt(self.t_rnd_derivacion),
+            "derivado a": self.t_derivado_a if self.t_derivado_a is not None else "",
+            "RND atención general": self._fmt(self.t_rnd_gral),
+            "tiempo atención general": self._fmt(self.t_tiempo_gral),
+            "hora fin atención general": self._fmt(self.eventos['fin_atencion_general']),
+            "RND cirujano": self._fmt(self.t_rnd_cirujano),
+            "tiempo cirujano": self._fmt(self.t_tiempo_cirujano),
+            "hora fin cirujano": self._fmt(self.eventos['fin_cirugia']),
+            "hora límite espera": self._fmt(self.t_hora_limite),
+            "RND sigue esperando": self._fmt(self.t_rnd_espera),
+            "Sigue esperando?": self.t_sigue_esperando if self.t_sigue_esperando is not None else "",
+            "hora fin esterilización": self._fmt(self.t_hora_fin_est),
+            "Est Triage": self.estado_triage,
+            "Cola Triage": len(self.cola_triage),
+            "Est Gral": self.estado_general,
+            "Cola Gral": len(self.cola_general),
+            "Est Cirujano": self.estado_cirujano,
+            "Cola Cirujano": len(self.cola_cirujano),
+            "Cant. cirugías p/ esterilización": self.cirujano_atendidos,
+            "Acumulador tiempo en cirugía": round(self.acum_tiempo_cirugia, 4),
+            "Acumulador tiempo en esterilización": round(self.acum_tiempo_esterilizacion, 4),
+            "Contador de pacientes": self.llegadas_totales,
+            "Contador pacientes sin atención": self.abandonos_totales,
+            "Acumulador tiempo espera de atención general": round(self.acum_espera_general_atendidos, 4),
+            "Contador de pacientes generales atendidos": self.cant_general_atendidos
+        }
+        
+        for i in range(self.cantidad_slots):
+            id_paciente = self.slots[i]
+            if con_pacientes and id_paciente is not None and id_paciente in self.pacientes_activos:
+                pac = self.pacientes_activos[id_paciente]
+                fila[f"P{i+1} ID"] = pac.id
+                fila[f"P{i+1} Est"] = pac.estado
+                fila[f"P{i+1} Hora llegada a cola"] = self._fmt(pac.tiempo_entrada_cola)
+                fila[f"P{i+1} Hora límite espera"] = self._fmt(pac.hora_limite_espera)
+            else:
+                fila[f"P{i+1} ID"] = "-"
+                fila[f"P{i+1} Est"] = "-"
+                fila[f"P{i+1} Hora llegada a cola"] = "-"
+                fila[f"P{i+1} Hora límite espera"] = "-"
+                
+        self.vector_estado.append(fila)
+
+# ==========================================
+# 3. INTERFAZ GRÁFICA (REDESARROLLADA)
+# ==========================================
+def main():
+    st.set_page_config(page_title="Simulador Guardia Odontológica", layout="wide", page_icon="🦷")
+    
+    st.markdown("<h1 style='text-align: center; color: #2E86C1;'>🦷 Simulador - Guardia Odontológica Sonrisas</h1>", unsafe_allow_html=True)
+    st.markdown("<h4 style='text-align: center; color: #5D6D7E;'>Grupo 9 - Trabajo Práctico 4</h4>", unsafe_allow_html=True)
+    st.write("")
+    
+    with st.expander("⚙️ PANEL DE CONFIGURACIÓN DE PARÁMETROS", expanded=True):
+        st.markdown("##### ⏱️ 1. Tiempos y Visualización")
+        c1, c2, c3 = st.columns(3)
+        tiempo_x = c1.number_input("Tiempo a simular (X min)", min_value=1, value=5000, step=10)
+        mostrar_iteraciones = c2.number_input("Mostrar (i) iteraciones", min_value=1, value=300)
+        desde_hora_j = c3.number_input("Mostrar desde hora (j)", min_value=0, value=0)
+        
+        st.markdown("##### 🏥 2. Recepción y Odontólogo General")
+        c4, c5, c6, c7 = st.columns(4)
+        media_llegadas = c4.number_input("Media llegadas (min)", min_value=1, value=30)
+        tiempo_triage = c5.number_input("Demora en Triage (min)", min_value=1, value=5)
+        prob_general = c6.number_input("Prob. Derivación Gral (%)", min_value=0, max_value=100, value=70) / 100
+        media_gral = c7.number_input("Media atención Gral (min)", min_value=1, value=30)
+        
+        st.markdown("##### 💉 3. Cirugía y Comportamiento")
+        c8, c9, c10, c11, c12, c13 = st.columns(6)
+        min_cirugia = c8.number_input("Min Cirugía (min)", min_value=1, value=40)
+        max_cirugia = c9.number_input("Max Cirugía (min)", min_value=1, value=60)
+        pacientes_est = c10.number_input("Pacientes p/ Est.", min_value=1, value=3, step=1)
+        tiempo_est = c11.number_input("Esterilización (min)", min_value=1, value=15)
+        tiempo_paciencia = c12.number_input("Paciencia (min)", min_value=1, value=30)
+        prob_abandono = c13.number_input("Abandono (%)", min_value=0, max_value=100, value=40) / 100
+
+    st.write("")
+    
+    col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
+    with col_btn2:
+        iniciar = st.button("🚀 INICIAR SIMULACIÓN", type="primary", use_container_width=True)
+
+    if iniciar:
+        if min_cirugia > max_cirugia:
+            st.error("Error: El tiempo mínimo de cirugía no puede ser mayor al máximo.")
+            return
+
+        with st.spinner('Ejecutando el motor de eventos discretos...'):
+            params = {
+                'media_llegadas': media_llegadas,
+                'tiempo_triage': tiempo_triage,
+                'prob_general': prob_general,
+                'media_gral': media_gral,
+                'min_cirugia': min_cirugia,
+                'max_cirugia': max_cirugia,
+                'tiempo_paciencia': tiempo_paciencia,
+                'prob_abandono': prob_abandono,
+                'pacientes_est': pacientes_est,
+                'tiempo_est': tiempo_est
+            }
+            
+            simulador = SimuladorSonrisas(tiempo_x, mostrar_iteraciones, desde_hora_j, params)
+            simulador.ejecutar()
+            
+            # CÁLCULOS
+            pct_abandonos = (simulador.abandonos_totales / simulador.llegadas_totales * 100) if simulador.llegadas_totales > 0 else 0
+            prom_espera_gral = (simulador.acum_espera_general_atendidos / simulador.cant_general_atendidos) if simulador.cant_general_atendidos > 0 else 0
+            
+            tiempo_final = simulador.reloj
+            pct_ocupacion_cirugia = (simulador.acum_tiempo_cirugia / tiempo_final * 100) if tiempo_final > 0 else 0
+            pct_ocupacion_est = (simulador.acum_tiempo_esterilizacion / tiempo_final * 100) if tiempo_final > 0 else 0
+
+            # Guardamos resultados
+            st.session_state['resultados'] = {
+                'llegadas_totales': simulador.llegadas_totales,
+                'abandonos_totales': simulador.abandonos_totales,
+                'cant_general_atendidos': simulador.cant_general_atendidos,
+                'historico_cirujano': simulador.historico_cirujano,
+                'pct_abandonos': pct_abandonos,
+                'prom_espera_gral': prom_espera_gral,
+                'pct_ocupacion_cirugia': pct_ocupacion_cirugia,
+                'pct_ocupacion_est': pct_ocupacion_est,
+                'vector_estado': simulador.vector_estado
+            }
+
+    if 'resultados' in st.session_state:
+        res = st.session_state['resultados']
+
+        st.success("✅ Simulación calculada exitosamente.")
+
+        tab1, tab2, tab3, tab4 = st.tabs(["📊 Dashboard Analítico", "📋 Vector de Estado", "🏁 Última Fila", "🗺️ Diagrama del Modelo"])
+
+        # ==========================================
+        # PESTAÑA 1: DASHBOARD
+        # ==========================================
+        with tab1:
+            st.header("Métricas Principales")
+            kpi1, kpi2, kpi3 = st.columns(3)
+            kpi1.metric("Llegadas Totales", res['llegadas_totales'])
+            kpi2.metric("% Abandonos", f"{res['pct_abandonos']:.2f}%")
+            kpi3.metric("Espera Prom. Gral", f"{res['prom_espera_gral']:.2f} min")
+
+            st.divider()
+            
+            row_graf1, row_graf2 = st.columns(2)
+            
+            with row_graf1:
+                st.subheader("Destino Final de los Pacientes")
+                df_destino = pd.DataFrame({
+                    'Estado': ['Atendidos Gral', 'Atendidos Cirugía', 'Abandonaron'],
+                    'Cantidad': [res['cant_general_atendidos'], res['historico_cirujano'], res['abandonos_totales']]
+                })
+                fig_bar = px.bar(df_destino, x='Estado', y='Cantidad', text='Cantidad', color='Estado',
+                                 color_discrete_map={'Atendidos Gral':'#3498DB', 'Atendidos Cirugía':'#9B59B6', 'Abandonaron':'#E74C3C'})
+                fig_bar.update_traces(textposition='auto')
+                st.plotly_chart(fig_bar, use_container_width=True)
+
+            with row_graf2:
+                st.subheader("Ocupación del Cirujano")
+                libre = max(0, 100 - res['pct_ocupacion_cirugia'] - res['pct_ocupacion_est'])
+                df_pie = pd.DataFrame({
+                    'Estado': ['Atendiendo', 'Esterilizando', 'Libre'],
+                    'Porcentaje': [res['pct_ocupacion_cirugia'], res['pct_ocupacion_est'], libre]
+                })
+                fig_pie = px.pie(df_pie, values='Porcentaje', names='Estado', hole=0.4,
+                                 color='Estado',
+                                 color_discrete_map={'Atendiendo':'#EF553B', 'Esterilizando':'#636EFA', 'Libre':'#00CC96'})
+                st.plotly_chart(fig_pie, use_container_width=True)
+
+            st.divider()
+            
+            st.subheader("Análisis de Rendimiento")
+            row_graf3, row_graf4 = st.columns(2)
+            
+            with row_graf3:
+                fig_gauge_abandono = go.Figure(go.Indicator(
+                    mode = "gauge+number",
+                    value = res['pct_abandonos'],
+                    title = {'text': "% de Abandonos"},
+                    number = {'suffix': "%"},
+                    gauge = {'axis': {'range': [None, 100]},
+                             'bar': {'color': "#E74C3C"},
+                             'steps': [
+                                 {'range': [0, 20], 'color': "lightgreen"},
+                                 {'range': [20, 40], 'color': "khaki"},
+                                 {'range': [40, 100], 'color': "lightcoral"}]}
+                ))
+                st.plotly_chart(fig_gauge_abandono, use_container_width=True)
+                
+            with row_graf4:
+                fig_gauge_espera = go.Figure(go.Indicator(
+                    mode = "gauge+number",
+                    value = res['prom_espera_gral'],
+                    title = {'text': "Espera Promedio Odont. Gral (min)"},
+                    gauge = {'axis': {'range': [None, 60]},
+                             'bar': {'color': "#3498DB"},
+                             'steps': [
+                                 {'range': [0, 30], 'color': "lightgreen"},
+                                 {'range': [30, 45], 'color': "khaki"},
+                                 {'range': [45, 60], 'color': "lightcoral"}]}
+                ))
+                st.plotly_chart(fig_gauge_espera, use_container_width=True)
+                
+            st.divider()
+            st.subheader("📈 Evolución Histórica de las Colas (Lq)")
+            st.info("Muestra el crecimiento y descongestión de las colas a lo largo del tiempo simulado.")
+            
+            df_plot = pd.DataFrame(res['vector_estado'])
+            if len(df_plot) > 2000:
+                df_plot = df_plot.sample(n=2000, random_state=1).sort_values(by="Reloj")
+                
+            fig_colas = px.line(
+                df_plot, 
+                x="Reloj", 
+                y=["Cola Triage", "Cola Gral", "Cola Cirujano"],
+                color_discrete_map={
+                    "Cola Triage": "#F39C12", 
+                    "Cola Gral": "#3498DB", 
+                    "Cola Cirujano": "#9B59B6"
+                }
+            )
+            fig_colas.update_traces(line_shape='hv')
+            fig_colas.update_layout(
+                xaxis_title="Reloj (Minutos)", 
+                yaxis_title="Cantidad de Pacientes",
+                legend_title_text="Servidores"
+            )
+            st.plotly_chart(fig_colas, use_container_width=True)
+
+        # ==========================================
+        # PESTAÑA 2: VECTOR DE ESTADO
+        # ==========================================
+        with tab2:
+            st.header("📋 Vector de Estado")
+            if res['vector_estado']:
+                df = pd.DataFrame(res['vector_estado'])
+                df_general = df.iloc[:-1]
+                
+                column_config = {
+                    "Iteración": st.column_config.Column(pinned=True),
+                    "Reloj": st.column_config.Column(pinned=True),
+                    "Evento": st.column_config.Column(pinned=True),
+                    "ID Paciente": st.column_config.Column(pinned=True),
+                }
+                st.caption("Grilla general de eventos. Seleccioná una fila para resaltarla. Las primeras columnas quedan fijas al hacer scroll horizontal.")
+                st.dataframe(
+                    df_general,
+                    use_container_width=True,
+                    hide_index=True,
+                    on_select="rerun",
+                    selection_mode="single-row",
+                    column_config=column_config,
+                )
+            else:
+                st.warning("No se registraron iteraciones en el rango solicitado.")
+
+        # ==========================================
+        # PESTAÑA 3: ÚLTIMA FILA
+        # ==========================================
+        with tab3:
+            st.header("🏁 Última Fila")
+            st.info("Fila correspondiente al instante X exacto de corte.")
+            if res['vector_estado']:
+                df = pd.DataFrame(res['vector_estado'])
+                df_ultima = df.iloc[[-1]]
+                
+                column_config_ultima = {
+                    "Iteración": st.column_config.Column(pinned=True),
+                    "Reloj": st.column_config.Column(pinned=True),
+                    "Evento": st.column_config.Column(pinned=True)
+                }
+                
+                st.dataframe(
+                    df_ultima, 
+                    use_container_width=True, 
+                    hide_index=True,
+                    column_config=column_config_ultima
+                )
+
+        # ==========================================
+        # PESTAÑA 4: DIAGRAMA DEL MODELO
+        # ==========================================
+        with tab4:
+            st.header("🗺️ Mapa del Sistema (Teoría de Colas)")
+            st.write("Representación lógica del flujo de pacientes, derivaciones y servidores.")
+            
+            st.graphviz_chart('''
+                digraph G {
+                    rankdir=LR;
+                    node [shape=box, style=filled, fillcolor="#ECF0F1", color="#2E86C1", fontname="Helvetica"];
+                    edge [color="#7F8C8D", fontname="Helvetica", fontsize=10];
+                    
+                    Llegada [shape=oval, fillcolor="#A9DFBF", label="Llegada Paciente\\nExp(30)"];
+                    Triage [fillcolor="#F9E79F", label="Servidor Triage\\n(Demora 5 min)"];
+                    Gral [label="Odontólogo General\\nExp(30)"];
+                    Cirujano [label="Cirujano\\nUni(40, 60)"];
+                    Salida [shape=oval, fillcolor="#F5B041", label="Fin de Atención"];
+                    Abandono [shape=oval, fillcolor="#E74C3C", fontcolor=white, label="Abandono por\\nImpaciencia (30m)"];
+                    Esterilizacion [shape=ellipse, fillcolor="#D7BDE2", label="Esterilización\\n(15 min)"];
+                    
+                    Llegada -> Triage;
+                    Triage -> Gral [label=" RND < 0.70"];
+                    Triage -> Cirujano [label=" RND >= 0.70"];
+                    
+                    Gral -> Salida;
+                    Cirujano -> Salida;
+                    
+                    Gral -> Abandono [label=" p=0.40"];
+                    Cirujano -> Abandono [label=" p=0.40"];
+                    
+                    Cirujano -> Esterilizacion [label=" Cada 3 pac.", dir=both];
+                }
+            ''')
+
+if __name__ == "__main__":
+    main()
