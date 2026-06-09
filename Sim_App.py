@@ -408,7 +408,89 @@ class SimuladorSonrisas:
         self.vector_estado.append(fila)
 
 # ==========================================
-# 3. INTERFAZ GRÁFICA (REDESARROLLADA)
+# 3. CÁLCULO DE MÉTRICAS
+# ==========================================
+def calcular_metricas(simulador):
+    pct_abandonos = (simulador.abandonos_totales / simulador.llegadas_totales * 100) if simulador.llegadas_totales > 0 else 0
+    prom_espera_gral = (simulador.acum_espera_general_atendidos / simulador.cant_general_atendidos) if simulador.cant_general_atendidos > 0 else 0
+    tiempo_final = simulador.reloj
+    pct_ocupacion_cirugia = (simulador.acum_tiempo_cirugia / tiempo_final * 100) if tiempo_final > 0 else 0
+    pct_ocupacion_est = (simulador.acum_tiempo_esterilizacion / tiempo_final * 100) if tiempo_final > 0 else 0
+    return pct_abandonos, prom_espera_gral, pct_ocupacion_cirugia, pct_ocupacion_est
+
+def render_multiples_simulaciones(contenedor, params, tiempo_x, min_cirugia, max_cirugia):
+    with contenedor:
+        st.info("Ejecuta N simulaciones independientes para analizar el valor promedio de las métricas y su estabilización. No se muestra la tabla de eventos.")
+        cN1, cN2, cN3 = st.columns([1, 2, 1])
+        with cN2:
+            n_simulaciones = st.number_input("Cantidad de simulaciones (N)", min_value=2, max_value=5000, value=100, step=10)
+            iniciar_multi = st.button("🔁 EJECUTAR N SIMULACIONES", type="primary", use_container_width=True)
+
+        if iniciar_multi:
+            if min_cirugia > max_cirugia:
+                st.error("Error: El tiempo mínimo de cirugía no puede ser mayor al máximo.")
+            else:
+                n = int(n_simulaciones)
+                progreso = st.progress(0, text="Ejecutando simulaciones...")
+                datos = {'abandonos': [], 'espera': [], 'ocup_cirugia': [], 'ocup_est': []}
+                for i in range(n):
+                    sim = SimuladorSonrisas(tiempo_x, 0, tiempo_x + 1, params)
+                    sim.ejecutar()
+                    a, e, oc, oe = calcular_metricas(sim)
+                    datos['abandonos'].append(a)
+                    datos['espera'].append(e)
+                    datos['ocup_cirugia'].append(oc)
+                    datos['ocup_est'].append(oe)
+                    progreso.progress((i + 1) / n, text=f"Simulación {i + 1} de {n}")
+                progreso.empty()
+                datos['n'] = n
+                st.session_state['resultados_multi'] = datos
+
+        if 'resultados_multi' in st.session_state:
+            rm = st.session_state['resultados_multi']
+            n = rm['n']
+            st.success(f"✅ {n} simulaciones ejecutadas.")
+
+            st.subheader("Valores Promedio")
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("% Abandonos (prom)", f"{sum(rm['abandonos']) / n:.2f}%")
+            m2.metric("% Ocup. Cirugía (prom)", f"{sum(rm['ocup_cirugia']) / n:.2f}%")
+            m3.metric("% Ocup. Esterilización (prom)", f"{sum(rm['ocup_est']) / n:.2f}%")
+            m4.metric("Espera Prom. Atención Gral (prom)", f"{sum(rm['espera']) / n:.2f} min")
+
+            st.divider()
+            st.subheader("📈 Estabilización de las Métricas")
+            st.info("Cada gráfico muestra el promedio acumulado de la métrica a medida que aumenta el número de simulaciones. La línea punteada indica el valor promedio final.")
+
+            metricas_cfg = [
+                ("% Abandonos", rm['abandonos'], "#E74C3C", "%"),
+                ("% Ocupación Cirugía", rm['ocup_cirugia'], "#9B59B6", "%"),
+                ("% Ocupación Esterilización", rm['ocup_est'], "#636EFA", "%"),
+                ("Espera Promedio Atención General", rm['espera'], "#3498DB", " min"),
+            ]
+
+            col_izq, col_der = st.columns(2)
+            columnas = [col_izq, col_der, col_izq, col_der]
+            for (titulo, valores, color, sufijo), col in zip(metricas_cfg, columnas):
+                with col:
+                    acum = []
+                    suma = 0.0
+                    for idx, v in enumerate(valores):
+                        suma += v
+                        acum.append(suma / (idx + 1))
+                    df_m = pd.DataFrame({
+                        "Simulación": list(range(1, len(valores) + 1)),
+                        "Promedio acumulado": acum
+                    })
+                    fig = px.line(df_m, x="Simulación", y="Promedio acumulado", title=titulo)
+                    fig.update_traces(line_color=color)
+                    fig.add_hline(y=acum[-1], line_dash="dash", line_color="#7F8C8D",
+                                  annotation_text=f"Final: {acum[-1]:.2f}{sufijo}")
+                    fig.update_layout(showlegend=False, yaxis_title="Promedio acumulado", height=350)
+                    st.plotly_chart(fig, use_container_width=True)
+
+# ==========================================
+# 4. INTERFAZ GRÁFICA (REDESARROLLADA)
 # ==========================================
 def main():
     st.set_page_config(page_title="Simulador Guardia Odontológica", layout="wide", page_icon="🦷")
@@ -441,60 +523,57 @@ def main():
         prob_abandono = c13.number_input("Abandono (%)", min_value=0, max_value=100, value=40) / 100
 
     st.write("")
-    
-    col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
-    with col_btn2:
-        iniciar = st.button("🚀 INICIAR SIMULACIÓN", type="primary", use_container_width=True)
 
-    if iniciar:
-        if min_cirugia > max_cirugia:
-            st.error("Error: El tiempo mínimo de cirugía no puede ser mayor al máximo.")
-            return
+    params = {
+        'media_llegadas': media_llegadas,
+        'tiempo_triage': tiempo_triage,
+        'prob_general': prob_general,
+        'media_gral': media_gral,
+        'min_cirugia': min_cirugia,
+        'max_cirugia': max_cirugia,
+        'tiempo_paciencia': tiempo_paciencia,
+        'prob_abandono': prob_abandono,
+        'pacientes_est': pacientes_est,
+        'tiempo_est': tiempo_est
+    }
 
-        with st.spinner('Ejecutando el motor de eventos discretos...'):
-            params = {
-                'media_llegadas': media_llegadas,
-                'tiempo_triage': tiempo_triage,
-                'prob_general': prob_general,
-                'media_gral': media_gral,
-                'min_cirugia': min_cirugia,
-                'max_cirugia': max_cirugia,
-                'tiempo_paciencia': tiempo_paciencia,
-                'prob_abandono': prob_abandono,
-                'pacientes_est': pacientes_est,
-                'tiempo_est': tiempo_est
-            }
-            
-            simulador = SimuladorSonrisas(tiempo_x, mostrar_iteraciones, desde_hora_j, params)
-            simulador.ejecutar()
-            
-            # CÁLCULOS
-            pct_abandonos = (simulador.abandonos_totales / simulador.llegadas_totales * 100) if simulador.llegadas_totales > 0 else 0
-            prom_espera_gral = (simulador.acum_espera_general_atendidos / simulador.cant_general_atendidos) if simulador.cant_general_atendidos > 0 else 0
-            
-            tiempo_final = simulador.reloj
-            pct_ocupacion_cirugia = (simulador.acum_tiempo_cirugia / tiempo_final * 100) if tiempo_final > 0 else 0
-            pct_ocupacion_est = (simulador.acum_tiempo_esterilizacion / tiempo_final * 100) if tiempo_final > 0 else 0
+    tab_individual, tab_multi = st.tabs(["🔬 Simulación Individual", "📈 Análisis Multi-Corrida (N Simulaciones)"])
 
-            # Guardamos resultados
-            st.session_state['resultados'] = {
-                'llegadas_totales': simulador.llegadas_totales,
-                'abandonos_totales': simulador.abandonos_totales,
-                'cant_general_atendidos': simulador.cant_general_atendidos,
-                'historico_cirujano': simulador.historico_cirujano,
-                'pct_abandonos': pct_abandonos,
-                'prom_espera_gral': prom_espera_gral,
-                'pct_ocupacion_cirugia': pct_ocupacion_cirugia,
-                'pct_ocupacion_est': pct_ocupacion_est,
-                'vector_estado': simulador.vector_estado
-            }
+    render_multiples_simulaciones(tab_multi, params, tiempo_x, min_cirugia, max_cirugia)
+
+    with tab_individual:
+        col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
+        with col_btn2:
+            iniciar = st.button("🚀 INICIAR SIMULACIÓN", type="primary", use_container_width=True)
+
+        if iniciar:
+            if min_cirugia > max_cirugia:
+                st.error("Error: El tiempo mínimo de cirugía no puede ser mayor al máximo.")
+            else:
+                with st.spinner('Ejecutando el motor de eventos discretos...'):
+                    simulador = SimuladorSonrisas(tiempo_x, mostrar_iteraciones, desde_hora_j, params)
+                    simulador.ejecutar()
+
+                    pct_abandonos, prom_espera_gral, pct_ocupacion_cirugia, pct_ocupacion_est = calcular_metricas(simulador)
+
+                    st.session_state['resultados'] = {
+                        'llegadas_totales': simulador.llegadas_totales,
+                        'abandonos_totales': simulador.abandonos_totales,
+                        'cant_general_atendidos': simulador.cant_general_atendidos,
+                        'historico_cirujano': simulador.historico_cirujano,
+                        'pct_abandonos': pct_abandonos,
+                        'prom_espera_gral': prom_espera_gral,
+                        'pct_ocupacion_cirugia': pct_ocupacion_cirugia,
+                        'pct_ocupacion_est': pct_ocupacion_est,
+                        'vector_estado': simulador.vector_estado
+                    }
 
     if 'resultados' in st.session_state:
         res = st.session_state['resultados']
 
-        st.success("✅ Simulación calculada exitosamente.")
-
-        tab1, tab2, tab3, tab4 = st.tabs(["📊 Dashboard Analítico", "📋 Vector de Estado", "🏁 Última Fila", "🗺️ Diagrama del Modelo"])
+        with tab_individual:
+            st.success("✅ Simulación calculada exitosamente.")
+            tab1, tab2, tab3, tab4 = st.tabs(["📊 Dashboard Analítico", "📋 Vector de Estado", "🏁 Última Fila", "🗺️ Diagrama del Modelo"])
 
         # ==========================================
         # PESTAÑA 1: DASHBOARD
