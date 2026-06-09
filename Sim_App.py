@@ -420,7 +420,6 @@ def calcular_metricas(simulador):
 
 def render_multiples_simulaciones(contenedor, params, tiempo_x, min_cirugia, max_cirugia):
     with contenedor:
-        st.info("Ejecuta N simulaciones independientes para analizar el valor promedio de las métricas y su estabilización. No se muestra la tabla de eventos.")
         cN1, cN2, cN3 = st.columns([1, 2, 1])
         with cN2:
             n_simulaciones = st.number_input("Cantidad de simulaciones (N)", min_value=2, max_value=5000, value=100, step=10)
@@ -460,7 +459,6 @@ def render_multiples_simulaciones(contenedor, params, tiempo_x, min_cirugia, max
 
             st.divider()
             st.subheader("📈 Estabilización de las Métricas")
-            st.info("Cada gráfico muestra el promedio acumulado de la métrica a medida que aumenta el número de simulaciones. La línea punteada indica el valor promedio final.")
 
             metricas_cfg = [
                 ("% Abandonos", rm['abandonos'], "#E74C3C", "%"),
@@ -479,10 +477,10 @@ def render_multiples_simulaciones(contenedor, params, tiempo_x, min_cirugia, max
                         suma += v
                         acum.append(suma / (idx + 1))
                     df_m = pd.DataFrame({
-                        "Simulación": list(range(1, len(valores) + 1)),
+                        "Simulaciones": list(range(1, len(valores) + 1)),
                         "Promedio acumulado": acum
                     })
-                    fig = px.line(df_m, x="Simulación", y="Promedio acumulado", title=titulo)
+                    fig = px.line(df_m, x="Simulaciones", y="Promedio acumulado", title=titulo)
                     fig.update_traces(line_color=color)
                     fig.add_hline(y=acum[-1], line_dash="dash", line_color="#7F8C8D",
                                   annotation_text=f"Final: {acum[-1]:.2f}{sufijo}")
@@ -506,19 +504,25 @@ def main():
         mostrar_iteraciones = c2.number_input("Mostrar (i) iteraciones", min_value=1, value=300)
         desde_hora_j = c3.number_input("Mostrar desde hora (j)", min_value=0, value=0)
         
-        st.markdown("##### 🏥 2. Recepción y Odontólogo General")
-        c4, c5, c6, c7 = st.columns(4)
+        st.markdown("##### 🏥 2. Recepción")
+        c4, c5 = st.columns(2)
         media_llegadas = c4.number_input("Media llegadas (min)", min_value=1, value=30)
         tiempo_triage = c5.number_input("Demora en Triage (min)", min_value=1, value=5)
+
+        st.markdown("##### 🦷 3. Odontólogo General")
+        c6, c7 = st.columns(2)
         prob_general = c6.number_input("Prob. Derivación Gral (%)", min_value=0, max_value=100, value=70) / 100
         media_gral = c7.number_input("Media atención Gral (min)", min_value=1, value=30)
-        
-        st.markdown("##### 💉 3. Cirugía y Comportamiento")
-        c8, c9, c10, c11, c12, c13 = st.columns(6)
+
+        st.markdown("##### 💉 4. Cirugía")
+        c8, c9, c10, c11 = st.columns(4)
         min_cirugia = c8.number_input("Min Cirugía (min)", min_value=1, value=40)
         max_cirugia = c9.number_input("Max Cirugía (min)", min_value=1, value=60)
-        pacientes_est = c10.number_input("Pacientes p/ Est.", min_value=1, value=3, step=1)
-        tiempo_est = c11.number_input("Esterilización (min)", min_value=1, value=15)
+        pacientes_est = c10.number_input("Cant. cirugías p/ esterilización", min_value=1, value=3, step=1)
+        tiempo_est = c11.number_input("Tiempo de esterilización (min)", min_value=1, value=15)
+
+        st.markdown("##### ⏳ 5. Paciencia y Abandono")
+        c12, c13 = st.columns(2)
         tiempo_paciencia = c12.number_input("Paciencia (min)", min_value=1, value=30)
         prob_abandono = c13.number_input("Abandono (%)", min_value=0, max_value=100, value=40) / 100
 
